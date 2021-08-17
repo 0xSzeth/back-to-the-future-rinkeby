@@ -1,6 +1,6 @@
 specVersion: 0.0.2
 schema:
-  file: ./schema.graphql
+  file: schema.graphql
 dataSources:
   - kind: ethereum/contract
     name: DInterest
@@ -25,9 +25,9 @@ dataSources:
         - OwnershipTransferred
       abis:
         - name: DInterest
-          file: ./abis/DInterest.json
+          file: DInterest/abis/DInterest.json
         - name: IInterestOracle
-          file: ./abis/IInterestOracle.json
+          file: DInterest/abis/IInterestOracle.json
       eventHandlers:
         - event: EDeposit(indexed address,indexed uint256,uint256,uint256,uint256,uint64)
           handler: handleEDeposit
@@ -49,4 +49,4 @@ dataSources:
           handler: handleOwnershipTransferred
       blockHandlers:
         - handler: handleBlock
-      file: ./src/mapping.ts
+      file: DInterest/DInterest.wasm

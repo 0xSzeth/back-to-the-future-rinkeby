@@ -1,4 +1,4 @@
-import { BigInt } from "@graphprotocol/graph-ts"
+import { BigDecimal, BigInt, Address, ByteArray, crypto, ethereum } from "@graphprotocol/graph-ts"
 import {
   DInterest,
   EDeposit,
@@ -11,85 +11,65 @@ import {
   EWithdraw,
   OwnershipTransferred
 } from "../generated/DInterest/DInterest"
-import { ExampleEntity } from "../generated/schema"
+import { IInterestOracle } from "../generated/DInterest/IInterestOracle"
+import { DPool } from "../generated/schema"
 
-export function handleEDeposit(event: EDeposit): void {
-  // Entities can be loaded from the store using a string ID; this ID
-  // needs to be unique across all entities of the same type
-  let entity = ExampleEntity.load(event.transaction.from.toHex())
+let YEAR = BigInt.fromI32(31556952); // One year in seconds
+let ZERO_DEC = BigDecimal.fromString('0')
+let POOL_ADDRESSES = new Array<string>(0);
+POOL_ADDRESSES.push("0x71482f8cd0e956051208603709639fa28cbc1f33"); // cDAI
 
-  // Entities only exist after they have been saved to the store;
-  // `null` checks allow to create entities on demand
-  if (entity == null) {
-    entity = new ExampleEntity(event.transaction.from.toHex())
-
-    // Entity fields can be set using simple assignments
-    entity.count = BigInt.fromI32(0)
-  }
-
-  // BigInt and BigDecimal math are supported
-  entity.count = entity.count + BigInt.fromI32(1)
-
-  // Entity fields can be set based on event parameters
-  entity.sender = event.params.sender
-  entity.depositID = event.params.depositID
-
-  // Entities can be written to the store with `.save()`
-  entity.save()
-
-  // Note: If a handler doesn't require existing field values, it is faster
-  // _not_ to load the entity from the store. Instead, create it fresh with
-  // `new Entity(...)`, set the fields that should be updated and save the
-  // entity back to the store. Fields that were not set or unset remain
-  // unchanged, allowing for partial updates to be applied.
-
-  // It is also possible to access smart contracts from mappings. For
-  // example, the contract that has emitted the event can be connected to
-  // with:
-  //
-  // let contract = Contract.bind(event.address)
-  //
-  // The following functions can then be called on this contract to access
-  // state variables and other data:
-  //
-  // - contract.MaxDepositPeriod(...)
-  // - contract.MinDepositAmount(...)
-  // - contract.accountNonce(...)
-  // - contract.calculateInterestAmount(...)
-  // - contract.deposit(...)
-  // - contract.depositNFT(...)
-  // - contract.depositsLength(...)
-  // - contract.feeModel(...)
-  // - contract.fund(...)
-  // - contract.fundingListLength(...)
-  // - contract.fundingMultitoken(...)
-  // - contract.getDeposit(...)
-  // - contract.getFunding(...)
-  // - contract.interestModel(...)
-  // - contract.interestOracle(...)
-  // - contract.moneyMarket(...)
-  // - contract.mphMinter(...)
-  // - contract.multicall(...)
-  // - contract.owner(...)
-  // - contract.payInterestToFunders(...)
-  // - contract.rawSurplusOfDeposit(...)
-  // - contract.rolloverDeposit(...)
-  // - contract.sponsoredDeposit(...)
-  // - contract.sponsoredFund(...)
-  // - contract.sponsoredPayInterestToFunders(...)
-  // - contract.sponsoredRolloverDeposit(...)
-  // - contract.sponsoredTopupDeposit(...)
-  // - contract.sponsoredWithdraw(...)
-  // - contract.stablecoin(...)
-  // - contract.sumOfRecordedFundedPrincipalAmountDivRecordedIncomeIndex(...)
-  // - contract.surplus(...)
-  // - contract.topupDeposit(...)
-  // - contract.totalDeposit(...)
-  // - contract.totalFeeOwed(...)
-  // - contract.totalFundedPrincipalAmount(...)
-  // - contract.totalInterestOwed(...)
-  // - contract.withdraw(...)
+export function keccak256(s: string): ByteArray {
+  return crypto.keccak256(ByteArray.fromUTF8(s));
 }
+
+export function tenPow(exponent: number): BigInt {
+  let result = BigInt.fromI32(1);
+  for (let i = 0; i < exponent; i++) {
+    result = result.times(BigInt.fromI32(10));
+  }
+  return result;
+}
+
+export function normalize(i: BigInt, decimals: number = 18): BigDecimal {
+  return i.toBigDecimal().div(new BigDecimal(tenPow(decimals)));
+}
+
+export function getPool(poolAddress: string): DPool {
+  let pool = DPool.load(poolAddress);
+  if (pool == null) {
+    pool = new DPool(poolAddress);
+    let poolContract = DInterest.bind(Address.fromString(poolAddress));
+    let oracleContract = IInterestOracle.bind(poolContract.interestOracle());
+
+    pool.address = poolAddress;
+    pool.moneyMarket = poolContract.moneyMarket().toHex();
+    pool.stablecoin = poolContract.stablecoin().toHex();
+    pool.interestModel = poolContract.interestModel().toHex();
+    pool.historicalInterestPaid = ZERO_DEC;
+
+    let oneYearInterestRate = poolContract.try_calculateInterestAmount(tenPow(18), YEAR);
+    if (oneYearInterestRate.reverted) {
+      pool.oneYearInterestRate = ZERO_DEC;
+    } else {
+      let value = oneYearInterestRate.value;
+      pool.oneYearInterestRate = normalize(value);
+    }
+
+    let oracleInterestRate = oracleContract.try_updateAndQuery();
+    if (oracleInterestRate.reverted) {
+      pool.oracleInterestRate = ZERO_DEC;
+    } else {
+      let value = oracleInterestRate.value.value1;
+      pool.oracleInterestRate = normalize(value);
+    }
+
+    pool.save();
+  }
+  return pool as DPool;
+}
+
+export function handleEDeposit(event: EDeposit): void {}
 
 export function handleEFund(event: EFund): void {}
 
@@ -97,7 +77,14 @@ export function handleEPayFundingInterest(event: EPayFundingInterest): void {}
 
 export function handleERolloverDeposit(event: ERolloverDeposit): void {}
 
-export function handleESetParamAddress(event: ESetParamAddress): void {}
+export function handleESetParamAddress(event: ESetParamAddress): void {
+  let pool = getPool(event.address.toHex());
+  let paramName = event.params.paramName;
+  if (paramName == keccak256("interestModel")) {
+    pool.interestModel = event.params.newValue.toHex();
+  }
+  pool.save();
+}
 
 export function handleESetParamUint(event: ESetParamUint): void {}
 
@@ -106,3 +93,30 @@ export function handleETopupDeposit(event: ETopupDeposit): void {}
 export function handleEWithdraw(event: EWithdraw): void {}
 
 export function handleOwnershipTransferred(event: OwnershipTransferred): void {}
+
+export function handleBlock(block: ethereum.Block): void {
+  for (let i = 0; i < POOL_ADDRESSES.length; i++) {
+    let poolID = POOL_ADDRESSES[i];
+    let pool = getPool(poolID);
+    let poolContract = DInterest.bind(Address.fromString(pool.address));
+    let oracleContract = IInterestOracle.bind(poolContract.interestOracle());
+
+    let oneYearInterestRate = poolContract.try_calculateInterestAmount(tenPow(18), YEAR);
+    if (oneYearInterestRate.reverted) {
+      // do nothing
+    } else {
+      let value = oneYearInterestRate.value;
+      pool.oneYearInterestRate = normalize(value);
+    }
+
+    let oracleInterestRate = oracleContract.try_updateAndQuery();
+    if (oracleInterestRate.reverted) {
+      // do nothing
+    } else {
+      let value = oracleInterestRate.value.value1;
+      pool.oracleInterestRate = normalize(value);
+    }
+
+    pool.save();
+  }
+}
