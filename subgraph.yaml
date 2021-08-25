@@ -54,9 +54,9 @@ dataSources:
     name: cUSDCPool
     network: rinkeby
     source:
-      address: "0x71482F8cD0e956051208603709639FA28cBc1F33"
+      address: "0x3d59EcA28fC3CA2338951A7C8E0C435a1691550b"
       abi: DInterest
-      startBlock: 8735260
+      startBlock: 9146305
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.4

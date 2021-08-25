@@ -18,6 +18,7 @@ let YEAR = BigInt.fromI32(31556952); // One year in seconds
 let ZERO_DEC = BigDecimal.fromString('0')
 let POOL_ADDRESSES = new Array<string>(0);
 POOL_ADDRESSES.push("0x71482f8cd0e956051208603709639fa28cbc1f33"); // cDAI
+POOL_ADDRESSES.push("0x3d59EcA28fC3CA2338951A7C8E0C435a1691550b"); // cUSDC
 
 export function keccak256(s: string): ByteArray {
   return crypto.keccak256(ByteArray.fromUTF8(s));
