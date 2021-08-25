@@ -8,4 +8,5 @@ type DPool @entity {
   oracleInterestRate: BigDecimal!
   # moneyMarketIncomeIndex: BigInt!
   historicalInterestPaid: BigDecimal!
+  surplus: BigDecimal!
 }

@@ -104,4 +104,13 @@ export class DPool extends Entity {
   set historicalInterestPaid(value: BigDecimal) {
     this.set("historicalInterestPaid", Value.fromBigDecimal(value));
   }
+
+  get surplus(): BigDecimal {
+    let value = this.get("surplus");
+    return value.toBigDecimal();
+  }
+
+  set surplus(value: BigDecimal) {
+    this.set("surplus", Value.fromBigDecimal(value));
+  }
 }
