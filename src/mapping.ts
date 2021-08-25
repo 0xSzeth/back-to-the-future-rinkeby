@@ -48,29 +48,15 @@ export function getPool(poolAddress: string): DPool {
   if (pool == null) {
     pool = new DPool(poolAddress);
     let poolContract = DInterest.bind(Address.fromString(poolAddress));
-    let oracleContract = IInterestOracle.bind(poolContract.interestOracle());
 
     pool.address = poolAddress;
     pool.moneyMarket = poolContract.moneyMarket().toHex();
     pool.stablecoin = poolContract.stablecoin().toHex();
     pool.interestModel = poolContract.interestModel().toHex();
+    pool.oneYearInterestRate = ZERO_DEC;
+    pool.oracleInterestRate = ZERO_DEC;
     pool.historicalInterestPaid = ZERO_DEC;
-
-    let oneYearInterestRate = poolContract.try_calculateInterestAmount(tenPow(18), YEAR);
-    if (oneYearInterestRate.reverted) {
-      pool.oneYearInterestRate = ZERO_DEC;
-    } else {
-      let value = oneYearInterestRate.value;
-      pool.oneYearInterestRate = normalize(value);
-    }
-
-    let oracleInterestRate = oracleContract.try_updateAndQuery();
-    if (oracleInterestRate.reverted) {
-      pool.oracleInterestRate = ZERO_DEC;
-    } else {
-      let value = oracleInterestRate.value.value1;
-      pool.oracleInterestRate = normalize(value);
-    }
+    pool.surplus = ZERO_DEC;
 
     pool.save();
   }
