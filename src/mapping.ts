@@ -1,4 +1,4 @@
-import { BigDecimal, BigInt, Address, ByteArray, crypto, ethereum } from "@graphprotocol/graph-ts"
+import { BigDecimal, BigInt, Address, ByteArray, crypto, ethereum } from "@graphprotocol/graph-ts";
 import {
   DInterest,
   EDeposit,
@@ -10,22 +10,26 @@ import {
   ETopupDeposit,
   EWithdraw,
   OwnershipTransferred
-} from "../generated/DInterest/DInterest"
-import { IInterestOracle } from "../generated/DInterest/IInterestOracle"
-import { DPool } from "../generated/schema"
+} from "../generated/cDAIPool/DInterest";
+import { IInterestOracle } from "../generated/cDAIPool/IInterestOracle";
+import { DPool } from "../generated/schema";
 
 let YEAR = BigInt.fromI32(31556952); // One year in seconds
-let ZERO_DEC = BigDecimal.fromString('0')
-let ONE_DEC = BigDecimal.fromString("1");
-let NEGONE_DEC = BigDecimal.fromString("-1");
+let ZERO_DEC = BigDecimal.fromString('0');
+let ONE_DEC = BigDecimal.fromString('1');
+let NEGONE_DEC = BigDecimal.fromString('-1');
 
 let POOL_ADDRESSES = new Array<string>(0);
-POOL_ADDRESSES.push("0x71482f8cd0e956051208603709639fa28cbc1f33"); // cDAI
+POOL_ADDRESSES.push("0x71482F8cD0e956051208603709639FA28cBc1F33"); // cDAI
 POOL_ADDRESSES.push("0x3d59EcA28fC3CA2338951A7C8E0C435a1691550b"); // cUSDC
 
 let POOL_STABLECOIN_DECIMALS = new Array<i32>(0);
 POOL_STABLECOIN_DECIMALS.push(18); // cDAI
 POOL_STABLECOIN_DECIMALS.push(6); // cUSDC
+
+let POOL_DEPLOY_BLOCKS = new Array<i32>(0);
+POOL_DEPLOY_BLOCKS.push(8735260) // cDAI
+POOL_DEPLOY_BLOCKS.push(9146306) // cUSDC
 
 export function keccak256(s: string): ByteArray {
   return crypto.keccak256(ByteArray.fromUTF8(s));
@@ -89,37 +93,42 @@ export function handleEWithdraw(event: EWithdraw): void {}
 export function handleOwnershipTransferred(event: OwnershipTransferred): void {}
 
 export function handleBlock(block: ethereum.Block): void {
+  let blockNumber = block.number.toI32();
   for (let i = 0; i < POOL_ADDRESSES.length; i++) {
-    let poolID = POOL_ADDRESSES[i];
-    let pool = getPool(poolID);
-    let poolContract = DInterest.bind(Address.fromString(pool.address));
-    let stablecoinDecimals: number = POOL_STABLECOIN_DECIMALS[i];
-    let oracleContract = IInterestOracle.bind(poolContract.interestOracle());
+    if (blockNumber >= POOL_DEPLOY_BLOCKS[i]) {
 
-    let oneYearInterestRate = poolContract.try_calculateInterestAmount(tenPow(18), YEAR);
-    if (oneYearInterestRate.reverted) {
-      // do nothing
-    } else {
-      let value = oneYearInterestRate.value;
-      pool.oneYearInterestRate = normalize(value);
+      let poolID = POOL_ADDRESSES[i];
+      let pool = getPool(poolID);
+      let poolContract = DInterest.bind(Address.fromString(pool.address));
+      let stablecoinDecimals: number = POOL_STABLECOIN_DECIMALS[i];
+      let oracleContract = IInterestOracle.bind(poolContract.interestOracle());
+
+      let oneYearInterestRate = poolContract.try_calculateInterestAmount(tenPow(18), YEAR);
+      if (oneYearInterestRate.reverted) {
+        // do nothing
+      } else {
+        let value = oneYearInterestRate.value;
+        pool.oneYearInterestRate = normalize(value);
+      }
+
+      let oracleInterestRate = oracleContract.try_updateAndQuery();
+      if (oracleInterestRate.reverted) {
+        // do nothing
+      } else {
+        let value = oracleInterestRate.value.value1;
+        pool.oracleInterestRate = normalize(value);
+      }
+
+      let surplusResult = poolContract.try_surplus();
+      if (surplusResult.reverted) {
+        // do nothing
+      } else {
+        let value = surplusResult.value.value1;
+        pool.surplus = normalize(value, stablecoinDecimals).times(surplusResult.value.value0 ? NEGONE_DEC : ONE_DEC);
+      }
+
+      pool.save();
+
     }
-
-    let oracleInterestRate = oracleContract.try_updateAndQuery();
-    if (oracleInterestRate.reverted) {
-      // do nothing
-    } else {
-      let value = oracleInterestRate.value.value1;
-      pool.oracleInterestRate = normalize(value);
-    }
-
-    let surplusResult = poolContract.try_surplus();
-    if (oracleInterestRate.reverted) {
-      // do nothing
-    } else {
-      let value = surplusResult.value.value1;
-      pool.surplus = normalize(value, stablecoinDecimals).times(surplusResult.value.value0 ? NEGONE_DEC : ONE_DEC);
-    }
-
-    pool.save();
   }
 }
